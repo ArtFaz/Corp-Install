@@ -1,19 +1,51 @@
-# Requirements for Windows Provisioning Tool
-# 
-# Nota: Este projeto usa apenas bibliotecas padrão do Python 3.x
-# Não há dependências externas obrigatórias.
+# =============================================================================
+#   REQUIREMENTS - Automatizador de Provisionamento Corporativo
+# =============================================================================
 #
-# Para compilar em .exe, instale o PyInstaller:
-# pip install pyinstaller
+#   DEPENDÊNCIAS DE RUNTIME:
+#   -------------------------
+#   Este projeto utiliza APENAS bibliotecas padrão do Python 3.x:
+#   - os, sys, time, shutil, subprocess, ctypes, datetime, pathlib, typing
 #
-# Comando de compilação:
-# pyinstaller --onefile --uac-admin --name "Provisionador" --icon=icon.ico main.py
+#   Não há dependências externas obrigatórias para executar o projeto!
 #
-# Opções explicadas:
-#   --onefile    : Gera um único arquivo .exe
-#   --uac-admin  : Solicita elevação de privilégios automaticamente
-#   --name       : Nome do executável gerado
-#   --icon       : Ícone personalizado (opcional)
+# =============================================================================
 
-# Dependência para compilação (não runtime)
+# =============================================================================
+#   REQUISITOS DO SISTEMA
+# =============================================================================
+#   - Python 3.8+ (recomendado 3.10+)
+#   - Windows 10/11
+#   - Permissões de Administrador
+#   - PowerShell 5.1+ (já incluso no Windows)
+#   - Winget (App Installer) - geralmente pré-instalado no Windows 10/11
+#   - Acesso à rede corporativa (para cópias de pasta e instaladores)
+
+# =============================================================================
+#   DEPENDÊNCIAS PARA DESENVOLVIMENTO/COMPILAÇÃO (opcionais)
+# =============================================================================
+
+# PyInstaller - Para compilar em .exe
 pyinstaller>=6.0.0
+
+# =============================================================================
+#   COMANDOS DE COMPILAÇÃO (.exe)
+# =============================================================================
+#
+#   Compilação Básica:
+#   -------------------
+#   pyinstaller --onefile --uac-admin --name "Provisionador" main.py
+#
+#   Compilação com Ícone Personalizado:
+#   ------------------------------------
+#   pyinstaller --onefile --uac-admin --name "Provisionador" --icon=icon.ico main.py
+#
+#   Opções Explicadas:
+#   -------------------
+#     --onefile    : Gera um único arquivo .exe portátil
+#     --uac-admin  : Solicita elevação de privilégios automaticamente
+#     --name       : Define o nome do executável gerado
+#     --icon       : Define um ícone personalizado (arquivo .ico)
+#     --noconsole  : Oculta a janela do terminal (NÃO use neste projeto CLI)
+#
+# =============================================================================
