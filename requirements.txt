@@ -1,0 +1,19 @@
+# Requirements for Windows Provisioning Tool
+# 
+# Nota: Este projeto usa apenas bibliotecas padrão do Python 3.x
+# Não há dependências externas obrigatórias.
+#
+# Para compilar em .exe, instale o PyInstaller:
+# pip install pyinstaller
+#
+# Comando de compilação:
+# pyinstaller --onefile --uac-admin --name "Provisionador" --icon=icon.ico main.py
+#
+# Opções explicadas:
+#   --onefile    : Gera um único arquivo .exe
+#   --uac-admin  : Solicita elevação de privilégios automaticamente
+#   --name       : Nome do executável gerado
+#   --icon       : Ícone personalizado (opcional)
+
+# Dependência para compilação (não runtime)
+pyinstaller>=6.0.0
