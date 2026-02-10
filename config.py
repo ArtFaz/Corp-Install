@@ -20,11 +20,11 @@ CONFIG = {
         "args": ""
     },
 
-    "winget_packages": [
-        "Google.Chrome",
-        "RARLab.WinRAR",
-        "Microsoft.Teams",
-        "AnyDesk.AnyDesk",
+    "choco_packages": [
+        ("googlechrome", ""),
+        ("winrar", ""),
+        ("microsoft-teams-new-install", ""),
+        ("anydesk", "--params \"'/INSTALL'\""),
     ],
 
     "webapp_url": "http://192.168.0.15",

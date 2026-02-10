@@ -15,7 +15,7 @@ from utils.colors import (
 from modules.identity import run_identity_setup
 from modules.install import (
     run_full_install,
-    install_winget_packages,
+    install_choco_packages,
     copy_network_folders,
     install_office,
     create_webapp_shortcut,
@@ -204,7 +204,7 @@ def show_submenu_avulso():
 
     items = [
         "",
-        f"    {green('[1]')}  Instalar Softwares      {Colors.MUTED}→ Chrome, WinRAR, Teams, AnyDesk{r}",
+        f"    {green('[1]')}  Instalar Softwares      {Colors.MUTED}→ Chocolatey: Chrome, WinRAR, Teams, AnyDesk{r}",
         f"    {green('[2]')}  Copiar Pastas da Rede    {Colors.MUTED}→ NextUltraDisplays, NextUltraArt{r}",
         f"    {green('[3]')}  Instalar Office          {Colors.MUTED}→ Office 2013 ou 365{r}",
         f"    {green('[4]')}  Criar Atalho WebApp      {Colors.MUTED}→ Atalho Chrome --app{r}",
@@ -249,7 +249,7 @@ def submenu_avulso_loop():
 
         if opcao == '1':
             clear_screen()
-            install_winget_packages()
+            install_choco_packages()
             pause("Pressione ENTER para voltar...")
 
         elif opcao == '2':

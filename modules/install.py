@@ -24,7 +24,7 @@ def run_full_install():
     print_header("ETAPA 2: INSTALAÇÃO DE SOFTWARES")
 
     print(f"  {Colors.MUTED}Esta etapa irá:{Colors.RESET}")
-    print(f"    {Colors.PRIMARY}•{Colors.RESET} Instalar Chrome, WinRAR, Teams, AnyDesk (Winget)")
+    print(f"    {Colors.PRIMARY}•{Colors.RESET} Instalar Chrome, WinRAR, Teams, AnyDesk (Chocolatey)")
     print(f"    {Colors.PRIMARY}•{Colors.RESET} Copiar pastas da rede para C:")
     print(f"    {Colors.PRIMARY}•{Colors.RESET} Instalar Office")
     print(f"    {Colors.PRIMARY}•{Colors.RESET} Criar atalho do sistema web")
@@ -33,10 +33,10 @@ def run_full_install():
 
     results = []
 
-    print(step_status(1, total_steps, "Instalando softwares via Winget...", "running"))
-    ok = install_winget_packages()
-    results.append(("Softwares (Winget)", "ok" if ok else "warn", "Chrome, WinRAR, Teams, AnyDesk"))
-    print(step_status(1, total_steps, "Softwares via Winget", "done" if ok else "error"))
+    print(step_status(1, total_steps, "Instalando softwares via Chocolatey...", "running"))
+    ok = install_choco_packages()
+    results.append(("Softwares (Chocolatey)", "ok" if ok else "warn", "Chrome, WinRAR, Teams, AnyDesk"))
+    print(step_status(1, total_steps, "Softwares via Chocolatey", "done" if ok else "error"))
 
     print(step_status(2, total_steps, "Copiando pastas da rede...", "running"))
     ok = copy_network_folders()
@@ -66,22 +66,96 @@ def run_full_install():
 
     return True
 
+CHOCO_BIN_DIR = os.path.join(
+    os.environ.get("PROGRAMDATA", r"C:\ProgramData"), "chocolatey", "bin"
+)
+CHOCO_EXE = os.path.join(CHOCO_BIN_DIR, "choco.exe")
 
-def install_winget_packages() -> bool:
-    """Instala pacotes configurados via Winget."""
+
+def _get_choco_cmd() -> str:
+    """Retorna o caminho do choco.exe, preferindo o caminho completo."""
+    if os.path.exists(CHOCO_EXE):
+        return f'"{CHOCO_EXE}"'
+    return "choco"
+
+
+def _refresh_path():
+    """Adiciona o diretório do Chocolatey ao PATH do processo atual."""
+    current_path = os.environ.get("PATH", "")
+    if CHOCO_BIN_DIR.lower() not in current_path.lower():
+        os.environ["PATH"] = CHOCO_BIN_DIR + ";" + current_path
+
+
+def ensure_chocolatey() -> bool:
+    """Garante que o Chocolatey está instalado no sistema."""
     logger = get_logger()
-    print_step("Instalando softwares via Winget...")
 
-    packages = CONFIG.get("winget_packages", [])
+    _refresh_path()
+
+    if os.path.exists(CHOCO_EXE):
+        return_code, stdout, _ = run_powershell(f'"{CHOCO_EXE}" --version', capture_output=True)
+        if return_code == 0 and stdout.strip():
+            logger.info(f"Chocolatey já instalado: v{stdout.strip()}")
+            print(f"    {Colors.SUCCESS}✓{Colors.RESET} Chocolatey v{stdout.strip()} detectado")
+            return True
+
+    logger.info("Chocolatey não encontrado. Instalando...")
+    print(info("Chocolatey não encontrado. Instalando automaticamente..."))
+
+    install_cmd = (
+        "Set-ExecutionPolicy Bypass -Scope Process -Force; "
+        "[System.Net.ServicePointManager]::SecurityProtocol = "
+        "[System.Net.ServicePointManager]::SecurityProtocol -bor 3072; "
+        "iex ((New-Object System.Net.WebClient).DownloadString("
+        "'https://community.chocolatey.org/install.ps1'))"
+    )
+
+    with Spinner("Instalando Chocolatey..."):
+        return_code, _, stderr = run_powershell(install_cmd, capture_output=True)
+
+    if return_code == 0:
+        _refresh_path()
+        logger.success("Chocolatey instalado com sucesso.")
+        print(f"    {Colors.SUCCESS}✓{Colors.RESET} Chocolatey instalado com sucesso")
+        return True
+    else:
+        logger.error(f"Falha ao instalar Chocolatey: {stderr}")
+        print(error(f"Falha ao instalar Chocolatey: {stderr}"))
+        return False
+
+
+def install_choco_packages() -> bool:
+    """Instala pacotes configurados via Chocolatey."""
+    logger = get_logger()
+    print_step("Instalando softwares via Chocolatey...")
+
+    if not ensure_chocolatey():
+        print(error("Não foi possível garantir o Chocolatey. Abortando instalação."))
+        return False
+
+    choco = _get_choco_cmd()
+    packages = CONFIG.get("choco_packages", [])
     total = len(packages)
     all_ok = True
-    pb = ProgressBar(total=total, label="Winget")
+    pb = ProgressBar(total=total, label="Chocolatey")
 
-    for idx, package_id in enumerate(packages, 1):
-        logger.info(f"Winget: {package_id}")
+    for idx, entry in enumerate(packages, 1):
+        if isinstance(entry, (list, tuple)):
+            package_id, extra_args = entry[0], entry[1]
+        else:
+            package_id, extra_args = entry, ""
+
+        logger.info(f"Chocolatey: {package_id}")
         pb.update(idx, detail=package_id)
 
-        cmd = f'winget install --id "{package_id}" --source winget --accept-source-agreements --accept-package-agreements --silent'
+        if choco.startswith('"'):
+            cmd = f'& {choco} install {package_id} -y --no-progress --ignore-checksums'
+        else:
+            cmd = f'{choco} install {package_id} -y --no-progress --ignore-checksums'
+            
+        if extra_args:
+            cmd += f' {extra_args}'
+
         return_code, _, _ = run_powershell(cmd, capture_output=False)
 
         if return_code == 0:
@@ -293,6 +367,8 @@ def launch_anydesk() -> bool:
         r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe",
         r"C:\Program Files\AnyDesk\AnyDesk.exe",
         os.path.join(os.environ.get("PROGRAMDATA", r"C:\ProgramData"), "AnyDesk", "AnyDesk.exe"),
+        os.path.join(os.environ.get("PROGRAMDATA", r"C:\ProgramData"), "chocolatey", "bin", "anydesk.exe"),
+        os.path.join(os.environ.get("PROGRAMDATA", r"C:\ProgramData"), "chocolatey", "lib", "anydesk", "tools", "AnyDesk.exe"),
     ]
 
     anydesk_exe = None
