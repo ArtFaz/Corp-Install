@@ -6,7 +6,7 @@
 
 **Ferramenta CLI para automação pós-formatação de máquinas Windows em ambiente corporativo.**
 
-Interface com visual premium: ASCII art, cores 256, barras de progresso, spinners animados e cards de resumo — tudo nativo no terminal, sem dependências externas.
+Interface com visual refinado, tudo nativo no terminal, sem dependências externas.
 
 ---
 
