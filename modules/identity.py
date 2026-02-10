@@ -1,50 +1,82 @@
-"""Etapa 1: Renomear e Ingressar no Domínio."""
+"""Etapa 1: Renomear PC e ingressar no domínio AD."""
+import time
 from config import CONFIG
-from utils.common import print_header, print_step, confirm_action
+from utils.common import print_header, print_step
 from utils.powershell import run_powershell
 from utils.logger import get_logger
+from utils.colors import (
+    Colors, cyan, yellow, success, error, warning, info,
+    styled_input, styled_confirm
+)
+
+
+def _draw_summary_box(novo_nome: str, dominio: str, usuario_admin: str):
+    """Caixa de resumo antes da confirmação."""
+    from utils.common import get_terminal_width
+    width = get_terminal_width() - 4
+    c = Colors.SURFACE
+    r = Colors.RESET
+
+    print("")
+    print(f"  {c}╔{'═' * (width - 2)}╗{r}")
+    title = "RESUMO DA OPERAÇÃO"
+    pad = (width - len(title) - 4) // 2
+    print(f"  {c}║{r}{' ' * pad}  {Colors.BOLD}{title}{r}{' ' * (width - len(title) - pad - 4)}{c}║{r}")
+    print(f"  {c}╠{'═' * (width - 2)}╣{r}")
+
+    items = [
+        ("Novo Nome", f"{Colors.PRIMARY}{novo_nome}{r}"),
+        ("Domínio", f"{Colors.CYAN}{dominio}{r}"),
+        ("Usuário", f"{Colors.YELLOW}{usuario_admin}{r}"),
+    ]
+
+    for label, value in items:
+        clean_line = f"  {label}: {novo_nome if 'Nome' in label else (dominio if 'Dom' in label else usuario_admin)}"
+        display_line = f"  {Colors.MUTED}{label}:{r} {value}"
+        padding = width - len(clean_line) - 4
+        print(f"  {c}║{r}  {display_line}{' ' * max(padding, 1)}{c}║{r}")
+
+    print(f"  {c}╚{'═' * (width - 2)}╝{r}")
+    print("")
 
 
 def run_identity_setup():
     """Renomeia o computador e ingressa no domínio."""
     logger = get_logger()
-    
+
     print_header("ETAPA 1: CONFIGURAÇÃO DE IDENTIDADE")
-    print("\nEsta etapa irá:")
-    print("  • Renomear o computador")
-    print("  • Ingressar a máquina no domínio")
-    print("  • REQUER REINICIALIZAÇÃO após conclusão\n")
-    
-    # --- Coleta de dados ---
-    novo_nome = input("Novo nome da máquina: ").strip()
+
+    print(f"  {Colors.MUTED}Esta etapa irá:{Colors.RESET}")
+    print(f"    {Colors.PRIMARY}•{Colors.RESET} Renomear o computador")
+    print(f"    {Colors.PRIMARY}•{Colors.RESET} Ingressar a máquina no domínio")
+    print(f"    {Colors.WARN}•{Colors.RESET} {yellow('REQUER REINICIALIZAÇÃO após conclusão')}")
+    print("")
+
+    novo_nome = styled_input("Novo nome da máquina")
     if not novo_nome:
-        print("[ERRO] O nome da máquina não pode ser vazio.")
+        print(error("O nome da máquina não pode ser vazio."))
         return False
-    
-    dominio = input(f"Domínio [{CONFIG['default_domain']}]: ").strip()
+
+    dominio_default = CONFIG['default_domain']
+    dominio = styled_input(f"Domínio [{cyan(dominio_default)}]")
     if not dominio:
-        dominio = CONFIG['default_domain']
-    
-    usuario_admin = input("Usuário Admin do Domínio (ex: DOMINIO\\admin): ").strip()
+        dominio = dominio_default
+
+    usuario_admin = styled_input("Usuário Admin do Domínio (ex: DOMINIO\\\\admin)")
     if not usuario_admin:
-        print("[ERRO] O usuário administrador é obrigatório.")
+        print(error("O usuário administrador é obrigatório."))
         return False
-    
-    # --- Confirmação ---
-    print("\n" + "-" * 50)
-    print("RESUMO DA OPERAÇÃO:")
-    print(f"  Novo Nome: {novo_nome}")
-    print(f"  Domínio:   {dominio}")
-    print(f"  Usuário:   {usuario_admin}")
-    print("-" * 50)
-    
-    if not confirm_action("Confirma as configurações acima?"):
-        print("Operação cancelada.")
+
+    _draw_summary_box(novo_nome, dominio, usuario_admin)
+
+    if not styled_confirm("Confirma as configurações acima?"):
+        print(warning("Operação cancelada."))
         return False
-    
+
     logger.info(f"Configurando identidade: {novo_nome} -> {dominio}")
-    
-    # --- Script PowerShell ---
+
+    # Add-Computer com -NewName faz rename + join em operação única,
+    # garantindo que o nome seja propagado corretamente no AD.
     ps_script = f'''
 $cred = Get-Credential -Message "Credenciais de {usuario_admin}" -UserName "{usuario_admin}"
 if ($null -eq $cred) {{
@@ -53,18 +85,11 @@ if ($null -eq $cred) {{
 }}
 
 try {{
-    Rename-Computer -NewName "{novo_nome}" -Force -ErrorAction Stop
+    Add-Computer -DomainName "{dominio}" -NewName "{novo_nome}" -Credential $cred -Force -Restart:$false -ErrorAction Stop
     Write-Host "[OK] Computador renomeado para: {novo_nome}"
-}} catch {{
-    Write-Error "Falha ao renomear: $_"
-    exit 1
-}}
-
-try {{
-    Add-Computer -DomainName "{dominio}" -Credential $cred -Force -ErrorAction Stop
     Write-Host "[OK] Máquina adicionada ao domínio: {dominio}"
 }} catch {{
-    Write-Error "Falha ao ingressar no domínio: $_"
+    Write-Error "Falha ao configurar identidade: $_"
     exit 1
 }}
 
@@ -74,28 +99,30 @@ Write-Host " CONFIGURAÇÃO CONCLUÍDA!"
 Write-Host " A máquina precisa ser REINICIADA."
 Write-Host "=========================================="
 '''
-    
+
     print_step("Executando comandos PowerShell...")
-    print("(Uma janela de credenciais será exibida)")
-    
+    print(info("Uma janela de credenciais será exibida"))
+
     return_code, stdout, stderr = run_powershell(ps_script, capture_output=False)
-    
+
     if return_code != 0:
         logger.error(f"Falha na configuração. Código: {return_code}")
-        print(f"\n[ERRO] Código: {return_code}")
+        print(error(f"Código de erro: {return_code}"))
         if stderr:
-            print(f"Detalhes: {stderr}")
+            print(f"    {Colors.MUTED}Detalhes: {stderr}{Colors.RESET}")
         return False
-    
+
     logger.success(f"Identidade configurada: {novo_nome}@{dominio}")
-    
-    # --- Reinicialização ---
+
     print("")
-    if confirm_action("Deseja REINICIAR a máquina agora?"):
+    if styled_confirm("Deseja REINICIAR a máquina agora?"):
         logger.info("Reinicialização solicitada.")
-        print("\nReiniciando em 5 segundos...")
-        run_powershell("shutdown /r /t 5 /c 'Reinicialização pós-ingresso no domínio'")
+        for i in range(5, 0, -1):
+            print(f"\r    {Colors.WARN}●{Colors.RESET} Reiniciando em {Colors.BOLD}{i}{Colors.RESET}s...", end="", flush=True)
+            time.sleep(1)
+        print("")
+        run_powershell("shutdown /r /t 0 /c 'Reinicialização pós-ingresso no domínio'")
     else:
-        print("\n[AVISO] Reinicie a máquina manualmente para aplicar as alterações.")
-    
+        print(warning("Reinicie a máquina manualmente para aplicar as alterações."))
+
     return True
