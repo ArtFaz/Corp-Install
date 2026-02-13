@@ -1,43 +1,31 @@
 """Etapa 1: Renomear PC e ingressar no domínio AD."""
 import time
 from config import CONFIG
-from utils.common import print_header, print_step
 from utils.powershell import run_powershell
 from utils.logger import get_logger
-from utils.colors import (
-    Colors, cyan, yellow, success, error, warning, info,
-    styled_input, styled_confirm
-)
+from utils.console import console, print_header, print_step, print_info, print_error, print_warning, ask_input, confirm_action
+from rich.table import Table
+from rich.panel import Panel
+from rich.live import Live
+from rich.text import Text
 
 
 def _draw_summary_box(novo_nome: str, dominio: str, usuario_admin: str):
     """Caixa de resumo antes da confirmação."""
-    from utils.common import get_terminal_width
-    width = get_terminal_width() - 4
-    c = Colors.SURFACE
-    r = Colors.RESET
+    grid = Table.grid(expand=True, padding=(0, 1))
+    grid.add_column(justify="right", style="dim white")
+    grid.add_column(justify="left", style="bold")
 
-    print("")
-    print(f"  {c}╔{'═' * (width - 2)}╗{r}")
-    title = "RESUMO DA OPERAÇÃO"
-    pad = (width - len(title) - 4) // 2
-    print(f"  {c}║{r}{' ' * pad}  {Colors.BOLD}{title}{r}{' ' * (width - len(title) - pad - 4)}{c}║{r}")
-    print(f"  {c}╠{'═' * (width - 2)}╣{r}")
+    grid.add_row("Novo Nome:", f"[primary]{novo_nome}[/]")
+    grid.add_row("Domínio:", f"[cyan]{dominio}[/]")
+    grid.add_row("Usuário:", f"[warning]{usuario_admin}[/]")
 
-    items = [
-        ("Novo Nome", f"{Colors.PRIMARY}{novo_nome}{r}"),
-        ("Domínio", f"{Colors.CYAN}{dominio}{r}"),
-        ("Usuário", f"{Colors.YELLOW}{usuario_admin}{r}"),
-    ]
-
-    for label, value in items:
-        clean_line = f"  {label}: {novo_nome if 'Nome' in label else (dominio if 'Dom' in label else usuario_admin)}"
-        display_line = f"  {Colors.MUTED}{label}:{r} {value}"
-        padding = width - len(clean_line) - 4
-        print(f"  {c}║{r}  {display_line}{' ' * max(padding, 1)}{c}║{r}")
-
-    print(f"  {c}╚{'═' * (width - 2)}╝{r}")
-    print("")
+    console.print(Panel(
+        grid,
+        title="[bold]RESUMO DA OPERAÇÃO[/]",
+        border_style="dim white",
+        padding=(1, 2)
+    ))
 
 
 def run_identity_setup():
@@ -46,31 +34,31 @@ def run_identity_setup():
 
     print_header("ETAPA 1: CONFIGURAÇÃO DE IDENTIDADE")
 
-    print(f"  {Colors.MUTED}Esta etapa irá:{Colors.RESET}")
-    print(f"    {Colors.PRIMARY}•{Colors.RESET} Renomear o computador")
-    print(f"    {Colors.PRIMARY}•{Colors.RESET} Ingressar a máquina no domínio")
-    print(f"    {Colors.WARN}•{Colors.RESET} {yellow('REQUER REINICIALIZAÇÃO após conclusão')}")
-    print("")
+    console.print("[dim]Esta etapa irá:[/]")
+    console.print("    [primary]•[/] Renomear o computador")
+    console.print("    [primary]•[/] Ingressar a máquina no domínio")
+    console.print("    [warning]•[/] [warning]REQUER REINICIALIZAÇÃO após conclusão[/]")
+    console.print()
 
-    novo_nome = styled_input("Novo nome da máquina")
+    novo_nome = ask_input("Novo nome da máquina")
     if not novo_nome:
-        print(error("O nome da máquina não pode ser vazio."))
+        print_error("O nome da máquina não pode ser vazio.")
         return False
 
-    dominio_default = CONFIG['default_domain']
-    dominio = styled_input(f"Domínio [{cyan(dominio_default)}]")
+    dominio_default = CONFIG.default_domain
+    dominio = ask_input(f"Domínio [{dominio_default}]")
     if not dominio:
         dominio = dominio_default
 
-    usuario_admin = styled_input("Usuário Admin do Domínio (ex: DOMINIO\\\\admin)")
+    usuario_admin = ask_input("Usuário Admin do Domínio (ex: DOMINIO\\\\admin)")
     if not usuario_admin:
-        print(error("O usuário administrador é obrigatório."))
+        print_error("O usuário administrador é obrigatório.")
         return False
 
     _draw_summary_box(novo_nome, dominio, usuario_admin)
 
-    if not styled_confirm("Confirma as configurações acima?"):
-        print(warning("Operação cancelada."))
+    if not confirm_action("Confirma as configurações acima?"):
+        print_warning("Operação cancelada.")
         return False
 
     logger.info(f"Configurando identidade: {novo_nome} -> {dominio}")
@@ -101,28 +89,30 @@ Write-Host "=========================================="
 '''
 
     print_step("Executando comandos PowerShell...")
-    print(info("Uma janela de credenciais será exibida"))
+    print_info("Uma janela de credenciais será exibida")
 
-    return_code, stdout, stderr = run_powershell(ps_script, capture_output=False)
+    with console.status("[primary]Configurando identidade...[/]", spinner="dots"):
+        return_code, stdout, stderr = run_powershell(ps_script, capture_output=False)
 
     if return_code != 0:
         logger.error(f"Falha na configuração. Código: {return_code}")
-        print(error(f"Código de erro: {return_code}"))
         if stderr:
-            print(f"    {Colors.MUTED}Detalhes: {stderr}{Colors.RESET}")
+            console.print(f"    [dim]Detalhes: {stderr}[/]")
         return False
 
     logger.success(f"Identidade configurada: {novo_nome}@{dominio}")
 
-    print("")
-    if styled_confirm("Deseja REINICIAR a máquina agora?"):
+    console.print()
+    if confirm_action("Deseja REINICIAR a máquina agora?"):
         logger.info("Reinicialização solicitada.")
-        for i in range(5, 0, -1):
-            print(f"\r    {Colors.WARN}●{Colors.RESET} Reiniciando em {Colors.BOLD}{i}{Colors.RESET}s...", end="", flush=True)
-            time.sleep(1)
-        print("")
+        with Live(refresh_per_second=4, console=console) as live:
+            for i in range(5, 0, -1):
+                bar = "█" * i + "░" * (5 - i)
+                live.update(Text(f"  ⏳ Reiniciando em {i}s  [{bar}]", style="bold warning"))
+                time.sleep(1)
+        console.print()
         run_powershell("shutdown /r /t 0 /c 'Reinicialização pós-ingresso no domínio'")
     else:
-        print(warning("Reinicie a máquina manualmente para aplicar as alterações."))
+        print_warning("Reinicie a máquina manualmente para aplicar as alterações.")
 
     return True

@@ -5,64 +5,75 @@ import subprocess
 import time
 
 from config import CONFIG
-from utils.common import print_header, print_step
+from utils.console import console, print_header, print_step, print_success, print_error, print_warning, print_info, ask_input
 from utils.powershell import run_powershell
 from utils.logger import get_logger
-from utils.colors import (
-    Colors, success, error, warning, info, green, yellow, cyan,
-    step_status, styled_input
-)
-from utils.progress import Spinner, ProgressBar, show_summary_card, show_celebration
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+from rich.panel import Panel
+from rich.table import Table
 
 
 def run_full_install():
     """Instalação completa pós-login no domínio."""
     logger = get_logger()
-    total_steps = 5
     start_time = time.time()
 
     print_header("ETAPA 2: INSTALAÇÃO DE SOFTWARES")
 
-    print(f"  {Colors.MUTED}Esta etapa irá:{Colors.RESET}")
-    print(f"    {Colors.PRIMARY}•{Colors.RESET} Instalar Chrome, WinRAR, Teams, AnyDesk (Chocolatey)")
-    print(f"    {Colors.PRIMARY}•{Colors.RESET} Copiar pastas da rede para C:")
-    print(f"    {Colors.PRIMARY}•{Colors.RESET} Instalar Office")
-    print(f"    {Colors.PRIMARY}•{Colors.RESET} Criar atalho do sistema web")
-    print(f"    {Colors.PRIMARY}•{Colors.RESET} Abrir AnyDesk para coletar ID")
-    print("")
+    steps = [
+        ("Softwares (Chocolatey)", install_choco_packages, "Chrome, WinRAR, Teams, AnyDesk"),
+        ("Pastas da Rede", copy_network_folders, "UNC → C:\\"),
+        ("Office", install_office, "Instalação Opcional"),
+        ("Atalho NextBP", create_webapp_shortcut, ""),
+        ("AnyDesk", launch_anydesk, "Anote o ID"),
+    ]
+
+    console.print("[dim]Esta etapa irá:[/]")
+    for label, _, detail in steps:
+        if detail:
+            console.print(f"    [blue]•[/] {label} ([dim]{detail}[/])")
+        else:
+            console.print(f"    [blue]•[/] {label}")
+    console.print()
 
     results = []
 
-    print(step_status(1, total_steps, "Instalando softwares via Chocolatey...", "running"))
-    ok = install_choco_packages()
-    results.append(("Softwares (Chocolatey)", "ok" if ok else "warn", "Chrome, WinRAR, Teams, AnyDesk"))
-    print(step_status(1, total_steps, "Softwares via Chocolatey", "done" if ok else "error"))
-
-    print(step_status(2, total_steps, "Copiando pastas da rede...", "running"))
-    ok = copy_network_folders()
-    results.append(("Pastas da Rede", "ok" if ok else "warn", "UNC → C:\\"))
-    print(step_status(2, total_steps, "Pastas copiadas", "done" if ok else "error"))
-
-    print(step_status(3, total_steps, "Instalando Office...", "running"))
-    ok = install_office()
-    results.append(("Office", "ok" if ok else "skip", ""))
-    print(step_status(3, total_steps, "Office", "done" if ok else "skip"))
-
-    print(step_status(4, total_steps, "Configurando atalho WebApp...", "running"))
-    ok = create_webapp_shortcut()
-    results.append(("Atalho WebApp", "ok" if ok else "warn", ""))
-    print(step_status(4, total_steps, "WebApp configurado", "done" if ok else "error"))
-
-    print(step_status(5, total_steps, "Abrindo AnyDesk...", "running"))
-    ok = launch_anydesk()
-    results.append(("AnyDesk", "ok" if ok else "warn", "Anote o ID"))
-    print(step_status(5, total_steps, "AnyDesk", "done" if ok else "error"))
+    for label, func, detail in steps:
+        try:
+            ok = func()
+            results.append((label, ok, detail))
+        except Exception as e:
+            logger.error(f"Erro em {label}: {e}")
+            results.append((label, False, f"Erro: {e}"))
 
     elapsed = time.time() - start_time
     logger.success(f"Etapa 2 concluída em {elapsed:.0f}s!")
 
-    show_summary_card("✓ INSTALAÇÃO CONCLUÍDA", results, elapsed)
-    show_celebration()
+    # Summary Table
+    table = Table(box=None, padding=(0, 2), expand=True)
+    table.add_column("Tarefa", style="bold")
+    table.add_column("Status", justify="right")
+    table.add_column("Detalhes", style="dim white")
+
+    for label, status, detail in results:
+        if status is True:
+            status_text = "[success]✅ Sucesso[/]"
+        elif status is False:
+            status_text = "[error]❌ Falha[/]"
+        else:
+            status_text = "[warning]⏭ Pulado[/]"
+
+        table.add_row(label, status_text, detail)
+
+    console.print()
+    console.print(Panel(
+        table,
+        title="[bold]INSTALAÇÃO CONCLUÍDA[/]",
+        subtitle=f"[dim]Tempo total: {elapsed:.0f}s[/]",
+        border_style="green",
+        padding=(1, 2)
+    ))
+    console.print()
 
     return True
 
@@ -96,11 +107,9 @@ def ensure_chocolatey() -> bool:
         return_code, stdout, _ = run_powershell(f'"{CHOCO_EXE}" --version', capture_output=True)
         if return_code == 0 and stdout.strip():
             logger.info(f"Chocolatey já instalado: v{stdout.strip()}")
-            print(f"    {Colors.SUCCESS}✓{Colors.RESET} Chocolatey v{stdout.strip()} detectado")
             return True
 
     logger.info("Chocolatey não encontrado. Instalando...")
-    print(info("Chocolatey não encontrado. Instalando automaticamente..."))
 
     install_cmd = (
         "Set-ExecutionPolicy Bypass -Scope Process -Force; "
@@ -110,17 +119,15 @@ def ensure_chocolatey() -> bool:
         "'https://community.chocolatey.org/install.ps1'))"
     )
 
-    with Spinner("Instalando Chocolatey..."):
+    with console.status("[primary]Instalando Chocolatey...[/]"):
         return_code, _, stderr = run_powershell(install_cmd, capture_output=True)
 
     if return_code == 0:
         _refresh_path()
         logger.success("Chocolatey instalado com sucesso.")
-        print(f"    {Colors.SUCCESS}✓{Colors.RESET} Chocolatey instalado com sucesso")
         return True
     else:
         logger.error(f"Falha ao instalar Chocolatey: {stderr}")
-        print(error(f"Falha ao instalar Chocolatey: {stderr}"))
         return False
 
 
@@ -130,54 +137,78 @@ def install_choco_packages() -> bool:
     print_step("Instalando softwares via Chocolatey...")
 
     if not ensure_chocolatey():
-        print(error("Não foi possível garantir o Chocolatey. Abortando instalação."))
+        print_error("Não foi possível garantir o Chocolatey. Abortando instalação.")
         return False
 
     choco = _get_choco_cmd()
-    packages = CONFIG.get("choco_packages", [])
-    total = len(packages)
+    packages = CONFIG.choco_packages
     all_ok = True
-    pb = ProgressBar(total=total, label="Chocolatey")
 
-    for idx, entry in enumerate(packages, 1):
-        if isinstance(entry, (list, tuple)):
-            package_id, extra_args = entry[0], entry[1]
-        else:
-            package_id, extra_args = entry, ""
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        console=console
+    ) as progress:
+        task = progress.add_task("[cyan]Instalando pacotes...[/]", total=len(packages))
 
-        logger.info(f"Chocolatey: {package_id}")
-        pb.update(idx, detail=package_id)
+        for idx, entry in enumerate(packages, 1):
+            if isinstance(entry, (list, tuple)):
+                package_id, extra_args = entry[0], entry[1]
+            else:
+                package_id, extra_args = entry, ""
 
-        if choco.startswith('"'):
-            cmd = f'& {choco} install {package_id} -y --no-progress --ignore-checksums'
-        else:
-            cmd = f'{choco} install {package_id} -y --no-progress --ignore-checksums'
+            progress.update(task, description=f"[cyan]Instalando {package_id}...[/]")
+            logger.info(f"Chocolatey: {package_id}")
+
+            if choco.startswith('"'):
+                cmd = f'& {choco} install {package_id} -y --no-progress --ignore-checksums'
+            else:
+                cmd = f'{choco} install {package_id} -y --no-progress --ignore-checksums'
+                
+            if extra_args:
+                cmd += f' {extra_args}'
+
+            return_code, stdout, _ = run_powershell(cmd, capture_output=True)
+
+            if return_code == 0:
+                logger.success(f"{package_id} instalado.")
+            elif return_code in (1641, 3010):
+                # Reboot necessário — considerado sucesso
+                logger.success(f"{package_id} instalado (reboot pendente).")
+            else:
+                output_lower = stdout.lower() if stdout else ""
+                if "already installed" in output_lower or "nothing to do" in output_lower:
+                    logger.warning(f"{package_id} já está instalado. Pulando.")
+                else:
+                    all_ok = False
+                    logger.warning(f"Erro em {package_id}. Verifique manualmente.")
             
-        if extra_args:
-            cmd += f' {extra_args}'
+            progress.advance(task)
 
-        return_code, _, _ = run_powershell(cmd, capture_output=False)
-
-        if return_code == 0:
-            logger.success(f"{package_id} instalado.")
-        else:
-            all_ok = False
-            logger.warning(f"Erro em {package_id}. Verifique manualmente.")
-
-    pb.finish(f"{total} pacotes processados")
     return all_ok
 
 
+def _count_files(source: str) -> int:
+    """Conta o número de arquivos em um diretório."""
+    count = 0
+    for _, _, files in os.walk(source):
+        count += len(files)
+    return count
+
+
 def copy_network_folders() -> bool:
-    """Copia pastas de rede para destinos locais."""
+    """Copia pastas de rede para destinos locais com progress bar."""
     logger = get_logger()
     print_step("Copiando pastas da rede...")
 
-    folders = CONFIG.get("unc_folders_to_copy", [])
+    folders = CONFIG.unc_folders_to_copy
     all_ok = True
 
     if not folders:
-        print(info("Nenhuma pasta configurada"))
+        print_info("Nenhuma pasta configurada")
         return True
 
     for source, destination in folders:
@@ -185,18 +216,35 @@ def copy_network_folders() -> bool:
         folder_name = os.path.basename(source)
 
         try:
-            with Spinner(f"Copiando {folder_name}..."):
-                start = time.time()
-                if os.path.exists(destination):
-                    shutil.rmtree(destination)
-                shutil.copytree(source, destination)
-                elapsed = time.time() - start
+            total_files = _count_files(source)
+            if total_files == 0:
+                total_files = 1
 
-            print(f"    {Colors.SUCCESS}✓{Colors.RESET} {folder_name} {Colors.MUTED}→ {destination} [{elapsed:.0f}s]{Colors.RESET}")
-            logger.success(f"Copiado: {destination}")
+            if os.path.exists(destination):
+                shutil.rmtree(destination)
+
+            start = time.time()
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[cyan]{task.description}"),
+                BarColumn(bar_width=30),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeElapsedColumn(),
+                console=console
+            ) as progress:
+                task = progress.add_task(f"[cyan]Copiando {folder_name}...[/]", total=total_files)
+
+                def _copy_with_progress(src, dst):
+                    shutil.copy2(src, dst)
+                    progress.advance(task)
+
+                shutil.copytree(source, destination, copy_function=_copy_with_progress)
+
+            elapsed = time.time() - start
+            logger.success(f"{folder_name} → {destination} ({elapsed:.0f}s)")
         except Exception as e:
-            print(f"    {Colors.DANGER}✗{Colors.RESET} {folder_name} — {e}")
-            logger.error(f"Falha: {e}")
+            logger.error(f"{folder_name} — {e}")
             all_ok = False
 
     return all_ok
@@ -210,45 +258,44 @@ def install_office() -> bool:
     office_version = _select_office_version()
 
     if office_version == "2013":
-        cfg = CONFIG.get("office_installer", {})
-        if cfg.get("path"):
-            return _run_installer("Office 2013", cfg["path"], cfg.get("args", ""))
+        cfg = CONFIG.office_installer
+        if cfg.path:
+            return _run_installer("Office 2013", cfg.path, cfg.args)
     elif office_version == "365":
-        cfg = CONFIG.get("office16_365_installer", {})
-        if cfg.get("path"):
-            return _run_installer("Office 365", cfg["path"], cfg.get("args", ""))
+        cfg = CONFIG.office16_365_installer
+        if cfg.path:
+            return _run_installer("Office 365", cfg.path, cfg.args)
     else:
-        print(info("Instalação do Office pulada"))
-        logger.info("Office pulado.")
+        logger.info("Instalação do Office pulada.")
 
     return False
 
 
 def _select_office_version() -> str:
     """Seleção interativa de versão do Office."""
-    from main import draw_box
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Opção", style="bold green", justify="right")
+    table.add_column("Pacote")
+    table.add_column("Detalhe", style="dim white")
 
-    menu_lines = [
-        "",
-        f"{green('[1]')}  Office 2013 {Colors.MUTED}(Standard SP.01 x64){Colors.RESET}",
-        f"{green('[2]')}  Office 365 {Colors.MUTED}(Pacote 2016){Colors.RESET}",
-        f"{yellow('[0]')}  Pular instalação do Office",
-        "",
-    ]
+    table.add_row("[1]", "Office 2013", "Standard SP.01 x64")
+    table.add_row("[2]", "Office 365", "Pacote 2016")
+    table.add_row("[0]", "[warning]Pular[/]", "")
 
-    print("")
-    print(draw_box(menu_lines, "VERSÃO DO OFFICE", Colors.PRIMARY))
+    console.print()
+    console.print(Panel(
+        table,
+        title="[bold]VERSÃO DO OFFICE[/]",
+        border_style="blue",
+        padding=(1, 2)
+    ))
 
     while True:
-        opcao = styled_input("Versão desejada")
-        if opcao == "1":
-            return "2013"
-        elif opcao == "2":
-            return "365"
-        elif opcao == "0":
-            return ""
-        else:
-            print(warning("Opção inválida."))
+        opcao = ask_input("Versão desejada")
+        if opcao == "1": return "2013"
+        elif opcao == "2": return "365"
+        elif opcao == "0": return ""
+        else: print_warning("Opção inválida.")
 
 
 def _run_installer(name: str, path: str, args: str) -> bool:
@@ -257,69 +304,50 @@ def _run_installer(name: str, path: str, args: str) -> bool:
 
     if not os.path.exists(path):
         logger.error(f"{name}: Arquivo não encontrado: {path}")
-        print(error(f"Arquivo não encontrado: {path}"))
         return False
 
     logger.info(f"Executando: {path}")
 
     try:
-        full_cmd = f'"{path}" {args}'
+        cmd = [path] + (args.split() if args else [])
         start = time.time()
 
-        with Spinner(f"Instalando {name}..."):
-            result = subprocess.run(full_cmd, shell=True, capture_output=True, text=True)
+        with console.status(f"[primary]Instalando {name}...[/]"):
+            result = subprocess.run(cmd, capture_output=True, text=True)
 
         elapsed = time.time() - start
 
         if result.returncode == 0:
-            logger.success(f"{name} instalado.")
-            print(f"    {Colors.SUCCESS}✓{Colors.RESET} {name} instalado {Colors.MUTED}[{elapsed:.0f}s]{Colors.RESET}")
+            logger.success(f"{name} instalado ({elapsed:.0f}s)")
             return True
         else:
             logger.warning(f"{name}: Código {result.returncode}")
-            print(f"    {Colors.WARN}⚠{Colors.RESET} {name} — Código {result.returncode}")
             return False
     except Exception as e:
         logger.error(f"Falha: {e}")
-        print(error(str(e)))
         return False
 
 
 def create_webapp_shortcut() -> bool:
-    """Cria atalho .lnk do WebApp via VBScript."""
+    """Cria atalho .lnk do NextBP via VBScript."""
     logger = get_logger()
-    print_step("Configurando atalho WebApp...")
+    print_step("Configurando atalho NextBP...")
 
-    webapp_url = CONFIG.get("webapp_url", "")
-    webapp_name = CONFIG.get("webapp_name", "WebApp")
-    chrome_path = CONFIG.get("chrome_path", "")
+    webapp_url = CONFIG.webapp_url
+    webapp_name = CONFIG.webapp_name
+    chrome_path = CONFIG.chrome_path
 
     if not webapp_url:
-        print(info("URL não configurada"))
+        print_info("URL não configurada")
         return False
 
     if not os.path.exists(chrome_path):
-        logger.warning(f"Chrome não encontrado: {chrome_path}")
-        print(warning("Chrome não no caminho padrão"))
-
-        alt_paths = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        ]
-        chrome_path = None
-        for alt in alt_paths:
-            if os.path.exists(alt):
-                chrome_path = alt
-                break
-
-        if not chrome_path:
-            logger.error("Chrome não encontrado.")
-            print(error("Chrome não encontrado em nenhum caminho."))
-            return False
+        logger.error(f"Chrome não encontrado: {chrome_path}")
+        return False
 
     logger.info(f"Atalho: {webapp_name} -> {webapp_url}")
 
-    if CONFIG.get("webapp_shortcut_location") == "Desktop":
+    if CONFIG.webapp_shortcut_location == "Desktop":
         shortcut_dir = os.path.join(os.environ.get("PUBLIC", r"C:\Users\Public"), "Desktop")
     else:
         shortcut_dir = os.path.join(os.environ.get("PROGRAMDATA", r"C:\ProgramData"),
@@ -345,11 +373,9 @@ Shortcut.Save
         subprocess.run(["cscript", "//Nologo", vbs_path], capture_output=True)
 
         logger.success(f"Atalho criado: {shortcut_path}")
-        print(f"    {Colors.SUCCESS}✓{Colors.RESET} Atalho: {Colors.MUTED}{shortcut_path}{Colors.RESET}")
         return True
     except Exception as e:
         logger.error(f"Falha: {e}")
-        print(error(str(e)))
         return False
     finally:
         try:
@@ -371,23 +397,16 @@ def launch_anydesk() -> bool:
         os.path.join(os.environ.get("PROGRAMDATA", r"C:\ProgramData"), "chocolatey", "lib", "anydesk", "tools", "AnyDesk.exe"),
     ]
 
-    anydesk_exe = None
     for path in anydesk_paths:
         if os.path.exists(path):
-            anydesk_exe = path
-            break
+            logger.info(f"Abrindo: {path}")
+            try:
+                subprocess.Popen([path])
+                logger.success("AnyDesk aberto — Anote o ID")
+                return True
+            except Exception as e:
+                logger.error(f"Falha ao abrir {path}: {e}")
+                return False
 
-    if anydesk_exe:
-        logger.info(f"Abrindo: {anydesk_exe}")
-        try:
-            subprocess.Popen([anydesk_exe])
-            print(f"    {Colors.SUCCESS}✓{Colors.RESET} AnyDesk aberto — {Colors.MUTED}Anote o ID{Colors.RESET}")
-            return True
-        except Exception as e:
-            logger.error(f"Falha: {e}")
-            print(error(str(e)))
-            return False
-    else:
-        logger.warning("AnyDesk não encontrado.")
-        print(warning("AnyDesk não encontrado."))
-        return False
+    logger.warning("AnyDesk não encontrado.")
+    return False

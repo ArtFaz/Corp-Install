@@ -38,24 +38,24 @@ class Logger:
             pass
 
     def info(self, message: str):
-        from utils.colors import Colors
+        from utils.console import print_info
         self._write("INFO", message)
-        print(f"  {Colors.INFO_COLOR}●{Colors.RESET} {message}")
+        print_info(message)
 
     def success(self, message: str):
-        from utils.colors import Colors
+        from utils.console import print_success
         self._write("SUCCESS", message)
-        print(f"  {Colors.SUCCESS}✓{Colors.RESET} {message}")
+        print_success(message)
 
     def warning(self, message: str):
-        from utils.colors import Colors
+        from utils.console import print_warning
         self._write("WARNING", message)
-        print(f"  {Colors.WARN}⚠{Colors.RESET} {message}")
+        print_warning(message)
 
     def error(self, message: str):
-        from utils.colors import Colors
+        from utils.console import print_error
         self._write("ERROR", message)
-        print(f"  {Colors.DANGER}✗{Colors.RESET} {Colors.RED}{message}{Colors.RESET}")
+        print_error(message)
 
     def get_log_path(self) -> str:
         return str(self.log_file)

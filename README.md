@@ -32,18 +32,6 @@ Automatiza o provisionamento de máquinas Windows após formatação em **duas e
 | **1** | Antes do reboot | Renomeia máquina e ingressa no domínio AD |
 | **2** | Após login no AD | Instala softwares, copia pastas, cria atalhos |
 
-### Recursos Visuais
-
-| Recurso | Descrição |
-|---------|-----------|
-| ASCII Art Banner | Logo com gradiente cyan→azul |
-| Menu Categorizado | Seções com ícones (⚙ Configuração, 📦 Instalação, 🔧 Utilidades) |
-| Spinner Braille | Animação `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` para operações longas |
-| Barra de Progresso | `████████░░░░ 60% [3/5] 12s` inline |
-| Cards de Resumo | Caixas Unicode com status por etapa |
-| Diagnóstico | Health bar visual `████████████████████ 100%` |
-| Transições | Animação suave entre telas |
-
 ---
 
 ## 💻 Requisitos
@@ -53,10 +41,9 @@ Automatiza o provisionamento de máquinas Windows após formatação em **duas e
 | **Windows** | 10/11 | Testado em 10 21H2+ e 11 |
 | **Python** | 3.8+ | Apenas para desenvolvimento |
 | **PowerShell** | 5.1+ | Já incluso no Windows |
-| **Winget** | 1.0+ | Pré-instalado no Windows 10/11 |
 | **Privilégios** | Admin | Obrigatório |
 
-> **Zero dependências externas** para execução — usa apenas stdlib do Python.
+> Softwares são instalados via **Chocolatey** (instalado automaticamente na primeira execução).
 
 ---
 
@@ -73,11 +60,10 @@ install-formatacao/
 │   └── diagnostics.py      # Verificação de pré-requisitos
 │
 └── utils/
-    ├── colors.py            # Paleta ANSI 256, formatadores
-    ├── common.py            # Helpers de UI (header, step, box)
+    ├── console.py           # Tema Rich, helpers de UI
+    ├── common.py            # Helpers (admin, clear, pause)
     ├── logger.py            # Logging em arquivo + console
-    ├── powershell.py        # Wrapper PowerShell
-    └── progress.py          # Spinner, ProgressBar, transições
+    └── powershell.py        # Wrapper PowerShell
 ```
 
 ---
@@ -122,10 +108,10 @@ pyinstaller --onefile --uac-admin --name "Provisionador" main.py
 2. Execute novamente como Admin
 3. Opção **[2]** — Instalação Completa
 4. Aguarde:
-   - ✅ Chrome, WinRAR, Teams, AnyDesk (Winget)
+   - ✅ Chrome, WinRAR, Teams, AnyDesk (Chocolatey)
    - ✅ Cópia de pastas da rede
    - ✅ Office (2013 ou 365)
-   - ✅ Atalho WebApp
+   - ✅ Atalho NextBP
    - ✅ AnyDesk (anotar ID)
 5. Pronto! 🎉
 
@@ -143,10 +129,10 @@ Formatação Windows
         🔄 REBOOT + LOGIN AD
                ▼
 ┌─ ETAPA 2: PÓS-DOMÍNIO ─────────┐
-│  Winget (Chrome, WinRAR, etc.)  │
+│  Chocolatey (Chrome, WinRAR...) │
 │  Copiar pastas da rede          │
 │  Instalar Office                │
-│  Atalho WebApp + AnyDesk        │
+│  Atalho NextBP + AnyDesk        │
 └──────────────┬──────────────────┘
                ▼
         ✅ MÁQUINA PRONTA
@@ -159,32 +145,27 @@ Formatação Windows
 Edite `config.py`:
 
 ```python
-CONFIG = {
-    "default_domain": "ultradisplays.local",
+@dataclass
+class AppConfig:
+    default_domain: str = "ultradisplays.local"
 
     # Pastas UNC: (origem, destino)
-    "unc_folders_to_copy": [
+    unc_folders_to_copy: List[Tuple[str, str]] = [
         (r"\\192.168.0.8\nextone\client", r"C:\NextUltraDisplays"),
-    ],
+        (r"\\192.168.0.8\nextone\MEGAPAPER\Client_Mega", r"C:\NextUltraArt"),
+    ]
 
-    # Pacotes Winget
-    "winget_packages": [
-        "Google.Chrome",
-        "RARLab.WinRAR",
-        "Microsoft.Teams",
-        "AnyDesk.AnyDesk",
-    ],
+    # Pacotes Chocolatey: (id_pacote, argumentos_extras)
+    choco_packages: List[Tuple[str, str]] = [
+        ("googlechrome", ""),
+        ("winrar", ""),
+        ("anydesk", "--params \"'/INSTALL'\""),
+        ("microsoft-teams-new-install", ""),
+    ]
 
-    # Office
-    "office_installer": {
-        "path": r"\\servidor\caminho\setup.exe",
-        "args": ""
-    },
-
-    # WebApp
-    "webapp_url": "http://192.168.0.15",
-    "webapp_name": "NextBP Sistema",
-}
+    # Atalho Web
+    webapp_url: str = "http://192.168.0.15"
+    webapp_name: str = "NextBP Sistema"
 ```
 
 ---
