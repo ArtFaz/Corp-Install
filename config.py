@@ -2,6 +2,8 @@
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional
 
+VERSION = "2.1.0"
+
 @dataclass
 class InstallerConfig:
     path: str
@@ -11,6 +13,7 @@ class InstallerConfig:
 class AppConfig:
     default_domain: str = "ultradisplays.local"
     unc_installers: str = r"\\192.168.0.11\t.i\@Instaladores de Formatação\@PROGRAMAS E UTILITÁRIOS"
+    log_dir: str = r"C:\ProvisioningLogs"
     
     # Pastas a copiar: (origem UNC, destino local)
     unc_folders_to_copy: List[Tuple[str, str]] = field(default_factory=lambda: [
@@ -40,5 +43,12 @@ class AppConfig:
     webapp_shortcut_location: str = "Desktop"
     chrome_path: str = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
+    def __post_init__(self):
+        if not self.default_domain:
+            raise ValueError("default_domain não pode ser vazio")
+        if not self.log_dir:
+            raise ValueError("log_dir não pode ser vazio")
+
 # Instância global
 CONFIG = AppConfig()
+

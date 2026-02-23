@@ -5,7 +5,7 @@ import subprocess
 import time
 
 from config import CONFIG
-from utils.console import console, print_header, print_step, print_success, print_error, print_warning, print_info, ask_input
+from utils.console import console, print_header, print_step, print_success, print_error, print_warning, print_info, ask_input, confirm_action
 from utils.powershell import run_powershell
 from utils.logger import get_logger
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
@@ -13,23 +13,85 @@ from rich.panel import Panel
 from rich.table import Table
 
 
-def run_full_install():
-    """Instalação completa pós-login no domínio."""
+def _retry(func, max_attempts: int = 3, label: str = "operação"):
+    """Executa func com retry progressivo. Retorna o resultado ou levanta a última exceção."""
+    logger = get_logger()
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return func()
+        except Exception as e:
+            if attempt == max_attempts:
+                raise
+            wait = attempt * 2
+            logger.warning(f"{label}: tentativa {attempt}/{max_attempts} falhou — retry em {wait}s...")
+            time.sleep(wait)
+
+
+def _pre_flight_check() -> bool:
+    """Verifica acessibilidade dos caminhos UNC antes de iniciar."""
+    logger = get_logger()
+    print_step("Verificação pré-voo...")
+
+    folders = CONFIG.unc_folders_to_copy
+    failed = []
+
+    for source, _ in folders:
+        if not os.path.exists(source):
+            failed.append(source)
+
+    if not failed:
+        print_success("Todos os caminhos de rede acessíveis.")
+        return True
+
+    for path in failed:
+        print_error(f"Inacessível: {path}")
+
+    logger.warning(f"Pré-voo: {len(failed)} caminho(s) inacessível(is).")
+    return confirm_action("Alguns caminhos estão inacessíveis. Deseja prosseguir mesmo assim?")
+
+
+STEP_KEYS = {
+    "chocolatey": "Softwares (Chocolatey)",
+    "folders": "Pastas da Rede",
+    "office": "Office",
+    "shortcut": "Atalho NextBP",
+    "anydesk": "AnyDesk",
+}
+
+
+def run_full_install(skip_steps: list = None, office_version: str = None):
+    """Instalação completa pós-login no domínio.
+
+    skip_steps: lista de chaves a pular (chocolatey, folders, office, shortcut, anydesk).
+    office_version: '2013', '365' ou '' para pular (modo automático).
+    """
     logger = get_logger()
     start_time = time.time()
+    skip = set(skip_steps or [])
 
     print_header("ETAPA 2: INSTALAÇÃO DE SOFTWARES")
 
-    steps = [
-        ("Softwares (Chocolatey)", install_choco_packages, "Chrome, WinRAR, Teams, AnyDesk"),
-        ("Pastas da Rede", copy_network_folders, "UNC → C:\\"),
-        ("Office", install_office, "Instalação Opcional"),
-        ("Atalho NextBP", create_webapp_shortcut, ""),
-        ("AnyDesk", launch_anydesk, "Anote o ID"),
+    if not _pre_flight_check():
+        print_warning("Instalação cancelada pelo usuário.")
+        return False
+
+    all_steps = [
+        ("chocolatey", "Softwares (Chocolatey)", lambda: install_choco_packages(), "Chrome, WinRAR, Teams, AnyDesk"),
+        ("folders", "Pastas da Rede", lambda: copy_network_folders(), "UNC → C:\\"),
+        ("office", "Office", lambda: install_office(office_version=office_version), "Instalação Opcional"),
+        ("shortcut", "Atalho NextBP", lambda: create_webapp_shortcut(), ""),
+        ("anydesk", "AnyDesk", lambda: launch_anydesk(), "Anote o ID"),
     ]
 
+    steps = [(key, label, func, detail) for key, label, func, detail in all_steps if key not in skip]
+
+    if skip:
+        skipped_labels = [STEP_KEYS[s] for s in skip if s in STEP_KEYS]
+        if skipped_labels:
+            print_info(f"Pulando: {', '.join(skipped_labels)}")
+
     console.print("[dim]Esta etapa irá:[/]")
-    for label, _, detail in steps:
+    for _, label, _, detail in steps:
         if detail:
             console.print(f"    [blue]•[/] {label} ([dim]{detail}[/])")
         else:
@@ -38,7 +100,7 @@ def run_full_install():
 
     results = []
 
-    for label, func, detail in steps:
+    for _, label, func, detail in steps:
         try:
             ok = func()
             results.append((label, ok, detail))
@@ -171,21 +233,29 @@ def install_choco_packages() -> bool:
             if extra_args:
                 cmd += f' {extra_args}'
 
-            return_code, stdout, _ = run_powershell(cmd, capture_output=True)
+            def _do_install(c=cmd, pid=package_id):
+                rc, out, _ = run_powershell(c, capture_output=True)
+                if rc == 0:
+                    return True, "ok", out
+                if rc in (1641, 3010):
+                    return True, "reboot", out
+                out_lower = out.lower() if out else ""
+                if "already installed" in out_lower or "nothing to do" in out_lower:
+                    return True, "skip", out
+                raise RuntimeError(f"{pid} retornou código {rc}")
 
-            if return_code == 0:
-                logger.success(f"{package_id} instalado.")
-            elif return_code in (1641, 3010):
-                # Reboot necessário — considerado sucesso
-                logger.success(f"{package_id} instalado (reboot pendente).")
-            else:
-                output_lower = stdout.lower() if stdout else ""
-                if "already installed" in output_lower or "nothing to do" in output_lower:
+            try:
+                ok, reason, _ = _retry(_do_install, max_attempts=2, label=package_id)
+                if reason == "reboot":
+                    logger.success(f"{package_id} instalado (reboot pendente).")
+                elif reason == "skip":
                     logger.warning(f"{package_id} já está instalado. Pulando.")
                 else:
-                    all_ok = False
-                    logger.warning(f"Erro em {package_id}. Verifique manualmente.")
-            
+                    logger.success(f"{package_id} instalado.")
+            except Exception:
+                all_ok = False
+                logger.warning(f"Erro em {package_id}. Verifique manualmente.")
+
             progress.advance(task)
 
     return all_ok
@@ -215,13 +285,13 @@ def copy_network_folders() -> bool:
         logger.info(f"Copiando: {source} -> {destination}")
         folder_name = os.path.basename(source)
 
-        try:
-            total_files = _count_files(source)
+        def _do_copy(src=source, dst=destination, name=folder_name):
+            total_files = _count_files(src)
             if total_files == 0:
                 total_files = 1
 
-            if os.path.exists(destination):
-                shutil.rmtree(destination)
+            if os.path.exists(dst):
+                shutil.rmtree(dst)
 
             start = time.time()
 
@@ -233,16 +303,19 @@ def copy_network_folders() -> bool:
                 TimeElapsedColumn(),
                 console=console
             ) as progress:
-                task = progress.add_task(f"[cyan]Copiando {folder_name}...[/]", total=total_files)
+                task = progress.add_task(f"[cyan]Copiando {name}...[/]", total=total_files)
 
-                def _copy_with_progress(src, dst):
-                    shutil.copy2(src, dst)
+                def _copy_with_progress(s, d):
+                    shutil.copy2(s, d)
                     progress.advance(task)
 
-                shutil.copytree(source, destination, copy_function=_copy_with_progress)
+                shutil.copytree(src, dst, copy_function=_copy_with_progress)
 
             elapsed = time.time() - start
-            logger.success(f"{folder_name} → {destination} ({elapsed:.0f}s)")
+            logger.success(f"{name} → {dst} ({elapsed:.0f}s)")
+
+        try:
+            _retry(_do_copy, max_attempts=3, label=folder_name)
         except Exception as e:
             logger.error(f"{folder_name} — {e}")
             all_ok = False
@@ -250,12 +323,16 @@ def copy_network_folders() -> bool:
     return all_ok
 
 
-def install_office() -> bool:
-    """Instala o Office (2013 ou 365)."""
+def install_office(office_version: str = None) -> bool:
+    """Instala o Office (2013 ou 365).
+
+    office_version: se fornecido, pula seleção interativa.
+    """
     logger = get_logger()
     print_step("Instalando Office...")
 
-    office_version = _select_office_version()
+    if office_version is None:
+        office_version = _select_office_version()
 
     if office_version == "2013":
         cfg = CONFIG.office_installer

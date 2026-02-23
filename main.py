@@ -6,10 +6,13 @@ import sys
 import time
 import random
 import socket
+import argparse
+import json
 
 from utils.common import is_admin, clear_screen, pause, get_terminal_width, smooth_transition
 from utils.logger import get_logger
-from utils.console import console, print_error, print_warning, ask_input
+from utils.console import console, print_error, print_info, print_warning, ask_input
+from config import CONFIG, VERSION
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -24,9 +27,6 @@ from modules.install import (
     launch_anydesk
 )
 from modules.diagnostics import run_full_diagnostics, open_logs_folder
-
-
-VERSION = "2.0.0"
 
 LOGO_LINES = [
     "██████╗ ██████╗  ██████╗ ██╗   ██╗██╗███████╗██╗ ██████╗ ███╗   ██╗ █████╗ ██████╗  ██████╗ ██████╗ ",
@@ -87,6 +87,32 @@ def _check_choco_available() -> bool:
     return os.path.exists(choco_exe)
 
 
+def _check_unc_available() -> bool:
+    """Verifica rapidamente se pelo menos um caminho UNC está acessível."""
+    for source, _ in CONFIG.unc_folders_to_copy:
+        if os.path.exists(source):
+            return True
+    return False
+
+
+def _get_last_provisioning() -> str:
+    """Retorna info do último provisionamento ou None."""
+    from pathlib import Path
+    import datetime
+
+    log_dir = Path(CONFIG.log_dir)
+    if not log_dir.exists():
+        return None
+
+    logs = sorted(log_dir.glob("provisioning_*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not logs:
+        return None
+
+    last = logs[0]
+    mtime = datetime.datetime.fromtimestamp(last.stat().st_mtime)
+    return mtime.strftime("%d/%m/%Y às %H:%M")
+
+
 def get_system_info() -> dict:
     return {
         "hostname": os.environ.get("COMPUTERNAME", "N/A"),
@@ -119,7 +145,7 @@ def show_banner():
         justify="center"
     )
 
-    # System Info Grid (agora com IP)
+    # System Info Grid
     grid = Table.grid(expand=True)
     grid.add_column(justify="center", ratio=1)
     grid.add_column(justify="center", ratio=1)
@@ -146,6 +172,12 @@ def show_banner():
     layout.add_row("")
     layout.add_row(grid)
 
+    # Histórico do último provisionamento
+    last_prov = _get_last_provisioning()
+    if last_prov:
+        layout.add_row("")
+        layout.add_row(f"[dim]📝 Último provisionamento: {last_prov}[/]")
+
     console.print(Panel(
         layout,
         border_style="blue",
@@ -158,7 +190,11 @@ def show_menu():
     from utils.console import print_menu
 
     choco_ok = _check_choco_available()
-    choco_indicator = "[success]●[/] Choco OK" if choco_ok else "[error]●[/] Choco N/A"
+    unc_ok = _check_unc_available()
+
+    choco_indicator = "[success]●[/] Choco" if choco_ok else "[error]●[/] Choco"
+    unc_indicator = "[success]●[/] Rede" if unc_ok else "[error]●[/] Rede"
+    status_line = f"{choco_indicator}  {unc_indicator}"
 
     items = [
         # Config
@@ -168,7 +204,7 @@ def show_menu():
 
         # Instalação
         ("", "📦  INSTALAÇÃO", ""),
-        ("2", "Instalação Completa", f"Tudo automatizado  {choco_indicator}"),
+        ("2", "Instalação Completa", f"Tudo automatizado  {status_line}"),
         ("3", "Instalações Avulsas", "Escolha individual"),
         ("", "", ""),
 
@@ -329,6 +365,7 @@ def _show_farewell():
     console.print("")
 
 
+
 def show_admin_error():
     """Erro de privilégios insuficientes."""
     console.print(Panel(
@@ -340,14 +377,96 @@ def show_admin_error():
     ))
 
 
+def _load_profile(path: str) -> dict:
+    """Carrega e valida um perfil JSON."""
+    if not os.path.exists(path):
+        print_error(f"Perfil não encontrado: {path}")
+        sys.exit(1)
+
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            profile = json.load(f)
+    except json.JSONDecodeError as e:
+        print_error(f"JSON inválido: {e}")
+        sys.exit(1)
+
+    required = ["hostname", "admin_user"]
+    missing = [k for k in required if not profile.get(k)]
+    if missing:
+        print_error(f"Campos obrigatórios ausentes no perfil: {', '.join(missing)}")
+        sys.exit(1)
+
+    return profile
+
+
+def run_unattended(profile: dict):
+    """Executa provisionamento completo sem interação."""
+    logger = get_logger()
+    logger.info(f"Modo automático: {profile.get('hostname')}")
+
+    console.print(Panel(
+        f"[bold]Modo Piloto Automático[/]\n\n"
+        f"Hostname:  [primary]{profile['hostname']}[/]\n"
+        f"Domínio:   [cyan]{profile.get('domain', CONFIG.default_domain)}[/]\n"
+        f"Usuário:   [warning]{profile['admin_user']}[/]\n"
+        f"Office:    [info]{profile.get('install_office', 'pular')}[/]\n"
+        f"Pular:     [dim]{', '.join(profile.get('skip_steps', [])) or 'nenhuma'}[/]",
+        title="[bold cyan]✈ UNATTENDED[/]",
+        border_style="cyan",
+        padding=(1, 2)
+    ))
+    console.print()
+
+    # Etapa 1: Identidade
+    ok = run_identity_setup(
+        hostname=profile["hostname"],
+        domain=profile.get("domain"),
+        admin_user=profile["admin_user"],
+        auto_reboot=profile.get("auto_reboot", False),
+    )
+
+    if not ok:
+        logger.error("Falha na Etapa 1. Abortando modo automático.")
+        return
+
+    if profile.get("auto_reboot", False):
+        return  # Máquina reiniciará, Etapa 2 será feita após login
+
+    # Etapa 2: Instalação
+    run_full_install(
+        skip_steps=profile.get("skip_steps", []),
+        office_version=profile.get("install_office", ""),
+    )
+
+    logger.success("Modo automático concluído.")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Provisionador Corporativo — Automação pós-formatação Windows"
+    )
+    parser.add_argument(
+        "--auto",
+        metavar="PERFIL",
+        help="Executa em modo automático com o perfil JSON informado"
+    )
+    return parser.parse_args()
+
+
 def main():
     if not is_admin():
         show_admin_error()
         console.input(f"\n  [muted]Pressione ENTER para sair...[/]")
         sys.exit(1)
 
+    args = parse_args()
+
     try:
-        main_menu()
+        if args.auto:
+            profile = _load_profile(args.auto)
+            run_unattended(profile)
+        else:
+            main_menu()
     except KeyboardInterrupt:
         console.print("\n")
         _show_farewell()

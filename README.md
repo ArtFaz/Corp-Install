@@ -193,7 +193,7 @@ pyinstaller --onefile --uac-admin --name "Provisionador" --icon=icon.ico main.py
 | Problema | Solução |
 |----------|---------|
 | "PRECISA ser executada como ADMINISTRADOR" | Botão direito → "Executar como administrador" |
-| Winget não encontrado | Instale [App Installer](https://www.microsoft.com/store/productId/9NBLGGH4NNS1) da Microsoft Store |
+| Chocolatey não encontrado | Será instalado automaticamente na primeira execução |
 | Falha ao ingressar no domínio | Verificar DNS, conectividade com DC, credenciais |
 | Cópia de pastas falha | Verificar acesso ao UNC, permissões de rede |
 | Office não instala | Verificar caminho do instalador e acessibilidade |

@@ -9,7 +9,8 @@ class Logger:
 
     def __init__(self, log_dir: str = None):
         if log_dir is None:
-            log_dir = r"C:\ProvisioningLogs"
+            from config import CONFIG
+            log_dir = CONFIG.log_dir
 
         self.log_dir = Path(log_dir)
         self.log_file = None

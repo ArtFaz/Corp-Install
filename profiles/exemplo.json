@@ -1,0 +1,16 @@
+{
+    "hostname": "PC-VENDAS-042",
+    "domain": "ultradisplays.local",
+    "admin_user": "ULTRA\\admin.ti",
+    "install_office": "365",
+    "skip_steps": [],
+    "auto_reboot": false,
+    "_doc": {
+        "hostname": "Nome NetBIOS da máquina (1-15 chars)",
+        "domain": "FQDN do domínio AD (padrão: config.py)",
+        "admin_user": "Formato DOMINIO\\usuario ou usuario@dominio",
+        "install_office": "Versão: '2013', '365' ou '' para pular",
+        "skip_steps": "Lista de etapas a pular: chocolatey, folders, office, shortcut, anydesk",
+        "auto_reboot": "Se true, reinicia automaticamente após Etapa 1"
+    }
+}
