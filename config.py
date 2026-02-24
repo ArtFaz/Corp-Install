@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional
 
-VERSION = "2.1.0"
+VERSION = "3.0.0"
 
 @dataclass
 class InstallerConfig:
@@ -10,15 +10,34 @@ class InstallerConfig:
     args: str = ""
 
 @dataclass
+class ShortcutConfig:
+    name: str
+    target_exe: str
+
+@dataclass
+class FolderCopyConfig:
+    source: str
+    destination: str
+    shortcut: Optional[ShortcutConfig] = None
+
+@dataclass
 class AppConfig:
     default_domain: str = "ultradisplays.local"
     unc_installers: str = r"\\192.168.0.11\t.i\@Instaladores de Formatação\@PROGRAMAS E UTILITÁRIOS"
     log_dir: str = r"C:\ProvisioningLogs"
-    
-    # Pastas a copiar: (origem UNC, destino local)
-    unc_folders_to_copy: List[Tuple[str, str]] = field(default_factory=lambda: [
-        (r"\\192.168.0.8\nextone\client", r"C:\NextUltraDisplays"),
-        (r"\\192.168.0.8\nextone\MEGAPAPER\Client_Mega", r"C:\NextUltraArt"),
+    anydesk_secret_file: str = r"\\192.168.0.11\T.I\@Provisionador\anydesk_pswrd.txt"
+    # Pastas a copiar e seus atalhos
+    unc_folders_to_copy: List[FolderCopyConfig] = field(default_factory=lambda: [
+        FolderCopyConfig(
+            source=r"\\192.168.0.8\nextone\client",
+            destination=r"C:\NextUltraDisplays",
+            shortcut=ShortcutConfig(name="NextSI UltraDisplays", target_exe="NextSIClient.exe")
+        ),
+        FolderCopyConfig(
+            source=r"\\192.168.0.8\nextone\MEGAPAPER\Client_Mega",
+            destination=r"C:\NextUltraArt",
+            shortcut=ShortcutConfig(name="NextSI UltraArt", target_exe="NextSIClient.exe")
+        ),
     ])
 
     office_installer: InstallerConfig = field(default_factory=lambda: InstallerConfig(
@@ -42,6 +61,11 @@ class AppConfig:
     webapp_name: str = "NextBP Sistema"
     webapp_shortcut_location: str = "Desktop"
     chrome_path: str = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+
+    # Configurações de Auto-Update
+    auto_update_enabled: bool = True
+    # Diretório de rede onde os binários de atualização (.exe) e o arquivo version.json são hospedados
+    update_network_dir: str = r"\\192.168.0.11\T.I\@Provisionador"
 
     def __post_init__(self):
         if not self.default_domain:

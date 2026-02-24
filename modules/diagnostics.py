@@ -130,11 +130,11 @@ def check_unc_paths() -> bool:
 
     all_ok = True
 
-    for source, _ in folders:
-        if os.path.exists(source):
-            print_success(f"{source}")
+    for cfg in folders:
+        if os.path.exists(cfg.source):
+            print_success(f"{cfg.source}")
         else:
-            print_error(f"{source} — [dim]Inacessível[/]")
+            print_error(f"{cfg.source} — [dim]Inacessível[/]")
             all_ok = False
 
     # Verifica instaladores do Office

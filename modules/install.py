@@ -35,9 +35,9 @@ def _pre_flight_check() -> bool:
     folders = CONFIG.unc_folders_to_copy
     failed = []
 
-    for source, _ in folders:
-        if not os.path.exists(source):
-            failed.append(source)
+    for cfg in folders:
+        if not os.path.exists(cfg.source):
+            failed.append(cfg.source)
 
     if not failed:
         print_success("Todos os caminhos de rede acessíveis.")
@@ -79,8 +79,9 @@ def run_full_install(skip_steps: list = None, office_version: str = None):
         ("chocolatey", "Softwares (Chocolatey)", lambda: install_choco_packages(), "Chrome, WinRAR, Teams, AnyDesk"),
         ("folders", "Pastas da Rede", lambda: copy_network_folders(), "UNC → C:\\"),
         ("office", "Office", lambda: install_office(office_version=office_version), "Instalação Opcional"),
+        ("power", "Plano de Energia", lambda: configure_power_plan(), "Anti-hibernação (High Performance)"),
         ("shortcut", "Atalho NextBP", lambda: create_webapp_shortcut(), ""),
-        ("anydesk", "AnyDesk", lambda: launch_anydesk(), "Anote o ID"),
+        ("anydesk", "AnyDesk", lambda: launch_anydesk(), "Acesso não supervisionado"),
     ]
 
     steps = [(key, label, func, detail) for key, label, func, detail in all_steps if key not in skip]
@@ -281,11 +282,11 @@ def copy_network_folders() -> bool:
         print_info("Nenhuma pasta configurada")
         return True
 
-    for source, destination in folders:
-        logger.info(f"Copiando: {source} -> {destination}")
-        folder_name = os.path.basename(source)
+    for cfg in folders:
+        logger.info(f"Copiando: {cfg.source} -> {cfg.destination}")
+        folder_name = os.path.basename(cfg.source)
 
-        def _do_copy(src=source, dst=destination, name=folder_name):
+        def _do_copy(src=cfg.source, dst=cfg.destination, name=folder_name, shortcut_info=cfg.shortcut):
             total_files = _count_files(src)
             if total_files == 0:
                 total_files = 1
@@ -313,6 +314,10 @@ def copy_network_folders() -> bool:
 
             elapsed = time.time() - start
             logger.success(f"{name} → {dst} ({elapsed:.0f}s)")
+            
+            if shortcut_info:
+                exe_path = os.path.join(dst, shortcut_info.target_exe)
+                _create_desktop_shortcut(exe_path, shortcut_info.name)
 
         try:
             _retry(_do_copy, max_attempts=3, label=folder_name)
@@ -461,10 +466,73 @@ Shortcut.Save
             pass
 
 
-def launch_anydesk() -> bool:
-    """Abre o AnyDesk para coleta do ID remoto."""
+def _create_desktop_shortcut(target_exe: str, shortcut_name: str) -> bool:
+    """Cria um atalho na Área de Trabalho Pública (Geral) para um executável local."""
     logger = get_logger()
-    print_step("Abrindo AnyDesk...")
+    
+    if not os.path.exists(target_exe):
+        logger.warning(f"Executável alvo do atalho não encontrado: {target_exe}")
+        return False
+        
+    shortcut_dir = os.path.join(os.environ.get("PUBLIC", r"C:\Users\Public"), "Desktop")
+    shortcut_path = os.path.join(shortcut_dir, f"{shortcut_name}.lnk")
+    
+    vbs_script = f'''
+Set WshShell = CreateObject("WScript.Shell")
+Set Shortcut = WshShell.CreateShortcut("{shortcut_path}")
+Shortcut.TargetPath = "{target_exe}"
+Shortcut.WorkingDirectory = "{os.path.dirname(target_exe)}"
+Shortcut.Description = "{shortcut_name}"
+Shortcut.Save
+'''
+    vbs_path = os.path.join(os.environ.get("TEMP", "/tmp"), f"create_{shortcut_name.replace(' ', '')}.vbs")
+    try:
+        with open(vbs_path, 'w', encoding='utf-8') as f:
+            f.write(vbs_script)
+
+        subprocess.run(["cscript", "//Nologo", vbs_path], capture_output=True)
+        logger.info(f"Atalho local criado: {shortcut_name}")
+        return True
+    except Exception as e:
+        logger.error(f"Falha ao criar atalho para {shortcut_name}: {e}")
+        return False
+    finally:
+        try:
+            os.remove(vbs_path)
+        except OSError:
+            pass
+
+
+def configure_power_plan() -> bool:
+    """Configura o Windows para Alto Desempenho e impede hibernação/suspensão da tela e disco."""
+    logger = get_logger()
+    print_step("Configurando Plano de Energia...")
+
+    commands = [
+        ("Ativando Alta Performance", "powercfg /SETACTIVE 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"),
+        ("Desativando suspensão do monitor", "powercfg /change standby-timeout-ac 0"),
+        ("Desativando hibernação", "powercfg /change hibernate-timeout-ac 0"),
+        ("Desativando suspensão de disco", "powercfg /change disk-timeout-ac 0")
+    ]
+
+    all_ok = True
+    for desc, cmd in commands:
+        logger.info(f"{desc}: {cmd}")
+        return_code, _, _ = run_powershell(cmd, capture_output=True)
+        if return_code != 0:
+            logger.warning(f"Aviso ao executar: {desc}")
+            all_ok = False
+            
+    if all_ok:
+        logger.success("Plano de energia corporativo aplicado (Anti-hibernação)")
+        return True
+    return False
+
+
+def launch_anydesk() -> bool:
+    """Aplica a senha mestre não supervisionada via arquivo oculto de rede e abre o AnyDesk."""
+    logger = get_logger()
+    print_step("Configurando Acesso Remoto (AnyDesk)...")
 
     anydesk_paths = [
         r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe",
@@ -474,16 +542,45 @@ def launch_anydesk() -> bool:
         os.path.join(os.environ.get("PROGRAMDATA", r"C:\ProgramData"), "chocolatey", "lib", "anydesk", "tools", "AnyDesk.exe"),
     ]
 
+    exe_path = None
     for path in anydesk_paths:
         if os.path.exists(path):
-            logger.info(f"Abrindo: {path}")
-            try:
-                subprocess.Popen([path])
-                logger.success("AnyDesk aberto — Anote o ID")
-                return True
-            except Exception as e:
-                logger.error(f"Falha ao abrir {path}: {e}")
-                return False
+            exe_path = path
+            break
 
-    logger.warning("AnyDesk não encontrado.")
-    return False
+    if not exe_path:
+        logger.warning("AnyDesk não encontrado no sistema.")
+        return False
+
+    logger.info(f"Executável: {exe_path}")
+
+    # Processamento seguro da senha
+    secret_file = getattr(CONFIG, "anydesk_secret_file", None)
+    if secret_file and os.path.exists(secret_file):
+        try:
+            with open(secret_file, "r", encoding="utf-8") as f:
+                senha = f.read().strip()
+            
+            if senha:
+                logger.info("Injetando senha mestre lida do servidor UNC...")
+                # O AnyDesk CLI aceita receber a senha via pipe stdin
+                process = subprocess.Popen([exe_path, "--set-password"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                process.communicate(input=senha.encode())
+                
+                if process.returncode == 0:
+                    logger.success("Senha autônoma configurada com sucesso!")
+                else:
+                    logger.warning("Ocorreu um erro ao definir a senha silenciosa do AnyDesk.")
+        except Exception as e:
+            logger.error(f"Não foi possível aplicar a senha do arquivo seguro: {e}")
+    else:
+        logger.info("Nenhum arquivo de senha ('anydesk_secret_file') encontrado. Pulando config de acesso autônomo.")
+
+    # Inicia a Interface
+    try:
+        subprocess.Popen([exe_path])
+        logger.success("AnyDesk iniciado!")
+        return True
+    except Exception as e:
+        logger.error(f"Falha ao iniciar {exe_path}: {e}")
+        return False

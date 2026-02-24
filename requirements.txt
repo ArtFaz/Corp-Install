@@ -1,5 +1,6 @@
 # Runtime
 rich>=13.0.0
+packaging>=23.0
 
 # Desenvolvimento/Compilação (opcional)
 pyinstaller>=6.0.0

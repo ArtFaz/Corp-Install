@@ -9,6 +9,12 @@ import socket
 import argparse
 import json
 
+# Forçar stdout e stderr para UTF-8 (corrige quebra de emojis no CMD padrão do Windows)
+if sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+if sys.stderr.encoding.lower() != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8')
+
 from utils.common import is_admin, clear_screen, pause, get_terminal_width, smooth_transition
 from utils.logger import get_logger
 from utils.console import console, print_error, print_info, print_warning, ask_input
@@ -23,6 +29,7 @@ from modules.install import (
     install_choco_packages,
     copy_network_folders,
     install_office,
+    configure_power_plan,
     create_webapp_shortcut,
     launch_anydesk
 )
@@ -89,8 +96,8 @@ def _check_choco_available() -> bool:
 
 def _check_unc_available() -> bool:
     """Verifica rapidamente se pelo menos um caminho UNC está acessível."""
-    for source, _ in CONFIG.unc_folders_to_copy:
-        if os.path.exists(source):
+    for cfg in CONFIG.unc_folders_to_copy:
+        if os.path.exists(cfg.source):
             return True
     return False
 
@@ -231,8 +238,9 @@ def show_submenu_avulso():
         ("1", "Instalar Softwares", "Chocolatey: Chrome, WinRAR, Teams, AnyDesk"),
         ("2", "Copiar Pastas da Rede", "NextUltraDisplays, NextUltraArt"),
         ("3", "Instalar Office", "Office 2013 ou 365"),
-        ("4", "Criar Atalho NextBP", "Atalho Chrome --app"),
-        ("5", "Abrir AnyDesk", "Para coletar o ID"),
+        ("4", "Configurar Plano de Energia", "Anti-Hibernação (Alta Performance)"),
+        ("5", "Criar Atalho NextBP", "Atalho Chrome --app"),
+        ("6", "Abrir AnyDesk", "Aplica senha de acesso autônomo e abre gui"),
         ("", "", ""),
         ("0", "[yellow]Voltar[/]", ""),
     ]
@@ -259,8 +267,9 @@ def submenu_avulso_loop():
         '1': install_choco_packages,
         '2': copy_network_folders,
         '3': install_office,
-        '4': create_webapp_shortcut,
-        '5': launch_anydesk,
+        '4': configure_power_plan,
+        '5': create_webapp_shortcut,
+        '6': launch_anydesk,
     }
 
     while True:
@@ -458,6 +467,16 @@ def main():
         show_admin_error()
         console.input(f"\n  [muted]Pressione ENTER para sair...[/]")
         sys.exit(1)
+
+    # ---------------------------------------------------------
+    # VERIFICAÇÃO INICIAL: Auto-Update Automático (Silencioso)
+    # ---------------------------------------------------------
+    if getattr(CONFIG, 'auto_update_enabled', False):
+        try:
+            from modules.updater import check_for_updates
+            check_for_updates()
+        except Exception:
+            pass
 
     args = parse_args()
 
