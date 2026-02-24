@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional
 
-VERSION = "3.0.0"
+VERSION = "3.0.1"
 
 @dataclass
 class InstallerConfig:
@@ -46,6 +46,10 @@ class AppConfig:
 
     office16_365_installer: InstallerConfig = field(default_factory=lambda: InstallerConfig(
         path=r"\\192.168.0.11\t.i\@Instaladores de Formatação\@PROGRAMAS E UTILITÁRIOS\Microsoft Office 2016 (Pacote 365)\Microsoft Office (Pacote365)\OfficeSetup.exe"
+    ))
+
+    sql_native_client_installer: InstallerConfig = field(default_factory=lambda: InstallerConfig(
+        path=r"\\192.168.0.11\T.I\@Instaladores de Formatação\@PROGRAMAS E UTILITÁRIOS\@Instaladores Padrão x64\sqlncli_2012_x64.msi"
     ))
 
     # Chocolatey packages: (package_id, arguments)

@@ -52,6 +52,7 @@ def _pre_flight_check() -> bool:
 
 STEP_KEYS = {
     "chocolatey": "Softwares (Chocolatey)",
+    "sqlncli": "SQL Native Client",
     "folders": "Pastas da Rede",
     "office": "Office",
     "shortcut": "Atalho NextBP",
@@ -77,6 +78,7 @@ def run_full_install(skip_steps: list = None, office_version: str = None):
 
     all_steps = [
         ("chocolatey", "Softwares (Chocolatey)", lambda: install_choco_packages(), "Chrome, WinRAR, Teams, AnyDesk"),
+        ("sqlncli", "SQL Native Client", lambda: install_sql_native_client(), "SQL Server Native Client 2012"),
         ("folders", "Pastas da Rede", lambda: copy_network_folders(), "UNC → C:\\"),
         ("office", "Office", lambda: install_office(office_version=office_version), "Instalação Opcional"),
         ("power", "Plano de Energia", lambda: configure_power_plan(), "Anti-hibernação (High Performance)"),
@@ -260,6 +262,38 @@ def install_choco_packages() -> bool:
             progress.advance(task)
 
     return all_ok
+
+
+def install_sql_native_client() -> bool:
+    """Instala o SQL Server Native Client 2012."""
+    logger = get_logger()
+    print_step("Instalando SQL Native Client...")
+
+    cfg = getattr(CONFIG, "sql_native_client_installer", None)
+    if not cfg or not cfg.path:
+        return False
+
+    if not os.path.exists(cfg.path):
+        logger.error(f"SQL Native Client: Arquivo não encontrado: {cfg.path}")
+        return False
+
+    logger.info(f"Executando: {cfg.path}")
+    
+    # Executa silenciosamente via msiexec
+    cmd = f'Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"{cfg.path}`" /qn /norestart IACCEPTSQLNCLILICENSETERMS=YES" -Wait -NoNewWindow'
+    
+    start = time.time()
+    with console.status("[primary]Instalando SQL Native Client 2012...[/]"):
+        return_code, stdout, stderr = run_powershell(cmd, capture_output=True)
+        
+    elapsed = time.time() - start
+    
+    if return_code == 0:
+        logger.success(f"SQL Native Client instalado ({elapsed:.0f}s)")
+        return True
+    else:
+        logger.error(f"Falha ao instalar SQL Native Client. Código: {return_code}")
+        return False
 
 
 def _count_files(source: str) -> int:

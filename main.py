@@ -27,6 +27,7 @@ from modules.identity import run_identity_setup
 from modules.install import (
     run_full_install,
     install_choco_packages,
+    install_sql_native_client,
     copy_network_folders,
     install_office,
     configure_power_plan,
@@ -236,11 +237,12 @@ def show_submenu_avulso():
 
     items = [
         ("1", "Instalar Softwares", "Chocolatey: Chrome, WinRAR, Teams, AnyDesk"),
-        ("2", "Copiar Pastas da Rede", "NextUltraDisplays, NextUltraArt"),
-        ("3", "Instalar Office", "Office 2013 ou 365"),
-        ("4", "Configurar Plano de Energia", "Anti-Hibernação (Alta Performance)"),
-        ("5", "Criar Atalho NextBP", "Atalho Chrome --app"),
-        ("6", "Abrir AnyDesk", "Aplica senha de acesso autônomo e abre gui"),
+        ("2", "Instalar SQL Native Client", "SQL Server Native Client 2012"),
+        ("3", "Copiar Pastas da Rede", "NextUltraDisplays, NextUltraArt"),
+        ("4", "Instalar Office", "Office 2013 ou 365"),
+        ("5", "Configurar Plano de Energia", "Anti-Hibernação (Alta Performance)"),
+        ("6", "Criar Atalho NextBP", "Atalho Chrome --app"),
+        ("7", "Abrir AnyDesk", "Aplica senha de acesso autônomo e abre gui"),
         ("", "", ""),
         ("0", "[yellow]Voltar[/]", ""),
     ]
@@ -265,11 +267,12 @@ def submenu_avulso_loop():
     """Loop do submenu de instalações avulsas."""
     actions = {
         '1': install_choco_packages,
-        '2': copy_network_folders,
-        '3': install_office,
-        '4': configure_power_plan,
-        '5': create_webapp_shortcut,
-        '6': launch_anydesk,
+        '2': install_sql_native_client,
+        '3': copy_network_folders,
+        '4': install_office,
+        '5': configure_power_plan,
+        '6': create_webapp_shortcut,
+        '7': launch_anydesk,
     }
 
     while True:
@@ -372,6 +375,7 @@ def _show_farewell():
     pad2 = (width - len(sub)) // 2
     console.print(f"{' ' * pad2}[muted]{sub}[/]")
     console.print("")
+    time.sleep(2.5)
 
 
 
